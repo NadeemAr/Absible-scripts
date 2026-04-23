@@ -1,0 +1,54 @@
+---
+- name: Patch RHEL servers   #Modified script
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    today: "{{ lookup('pipe', 'date +%Y-%m-%d') }}"
+
+  tasks:
+    - name: Clean DNF cache
+      ansible.builtin.command: dnf clean all
+      changed_when: false
+      failed_when: false
+
+    - name: Apply all available updates using DNF
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+        update_only: true
+      register: patch_result
+
+    - name: Reboot the servers
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+      when: patch_result is changed
+
+    - name: Wait for server to become reachable after reboot
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+      when: patch_result is changed
+
+    - name: Gather facts after reboot
+      ansible.builtin.setup:
+
+    - name: Check how many packages were altered today
+      ansible.builtin.shell: "dnf history list | grep {{ today }} | cut -d '|' -f 5"
+      register: patch_count
+      ignore_errors: true
+      changed_when: false
+
+    - name: Show count of packages updated today
+      ansible.builtin.debug:
+        msg: "Number of packages altered today: {{ patch_count.stdout | default('0') }}"
+
+    - name: Show system IP and uptime
+      ansible.builtin.shell: "hostname; hostname -I; uptime"
+      register: ip_uptime
+      changed_when: false
+
+    - name: Display system info
+      ansible.builtin.debug:
+        msg: |
+          {{ ip_uptime.stdout }}
