@@ -1,0 +1,29 @@
+---
+- name: Patch RHEL 9 servers
+  hosts: rhel9
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Clean DNF cache
+      ansible.builtin.command: dnf clean all
+      changed_when: false
+
+    - name: Apply all available updates
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+        update_only: true
+      register: patch_result
+
+    - name: Check if reboot is required
+      ansible.builtin.command: needs-restarting -r
+      register: reboot_check
+      failed_when: false
+      changed_when: false
+
+    - name: Reboot if required
+      ansible.builtin.reboot:
+        msg: "Reboot initiated by AWX after patching"
+        reboot_timeout: 1800
+      when: reboot_check.rc != 0
