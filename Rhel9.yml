@@ -1,6 +1,6 @@
 ---
 - name: Patch RHEL 9 servers
-  hosts: rhel9
+  hosts: all
   become: true
   gather_facts: true
 
