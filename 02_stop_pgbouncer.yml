@@ -1,60 +1,68 @@
 ---
-- name: Stop PgBouncer service safely
+- name: Stop PgBouncer hard stop
   hosts: all
   become: true
   gather_facts: false
 
   tasks:
-    - name: Get PgBouncer MainPID from systemd
-      shell: systemctl show pgbouncer -p MainPID --value
-      register: pgbouncer_mainpid
+    - name: Show current PgBouncer process
+      shell: ps -ef | grep '[p]gbouncer'
+      register: before_process
+      ignore_errors: true
       changed_when: false
 
-    - name: Show MainPID
+    - name: Display current process
       debug:
-        msg: "PgBouncer MainPID is {{ pgbouncer_mainpid.stdout }}"
+        var: before_process.stdout_lines
 
-    - name: Try graceful kill using systemd
+    - name: Disable PgBouncer so it does not restart
+      systemd:
+        name: pgbouncer
+        enabled: false
+
+    - name: Mask PgBouncer temporarily
+      command: systemctl mask pgbouncer
+      changed_when: true
+      ignore_errors: true
+
+    - name: Kill exact PgBouncer PID
       shell: |
-        systemctl kill --signal=SIGTERM --kill-who=main pgbouncer || true
-        sleep 10
+        PIDS=$(pgrep -f "/usr/bin/pgbouncer")
+        if [ -n "$PIDS" ]; then
+          kill -TERM $PIDS || true
+          sleep 5
+          kill -KILL $PIDS || true
+        fi
       changed_when: true
 
-    - name: Check if PgBouncer process still exists
-      shell: pgrep -a pgbouncer || true
-      register: pgbouncer_check_1
+    - name: Wait until PgBouncer process is gone
+      shell: pgrep -f "/usr/bin/pgbouncer" || true
+      register: pgbouncer_pid_check
+      retries: 10
+      delay: 3
+      until: pgbouncer_pid_check.stdout == ""
       changed_when: false
 
-    - name: Show PgBouncer process after SIGTERM
-      debug:
-        msg: "{{ pgbouncer_check_1.stdout | default('No PgBouncer process running') }}"
+    - name: Reset failed systemd state
+      command: systemctl reset-failed pgbouncer
+      changed_when: false
+      ignore_errors: true
 
-    - name: Force kill PgBouncer if still running
-      shell: |
-        pkill -KILL pgbouncer || true
-        sleep 5
-      when: pgbouncer_check_1.stdout != ""
-      changed_when: true
-
-    - name: Reset failed state
-      shell: systemctl reset-failed pgbouncer || true
+    - name: Final PgBouncer process check
+      shell: ps -ef | grep '[p]gbouncer' || true
+      register: final_check
       changed_when: false
 
-    - name: Final process check
-      shell: pgrep -a pgbouncer || true
-      register: final_pgbouncer_check
-      changed_when: false
-
-    - name: Show final PgBouncer process status
+    - name: Show final status
       debug:
         msg: >-
-          {% if final_pgbouncer_check.stdout != "" %}
-          PgBouncer is still running: {{ final_pgbouncer_check.stdout }}
-          {% else %}
+          {% if final_check.stdout == "" %}
           PgBouncer process is stopped.
+          {% else %}
+          PgBouncer is still running: {{ final_check.stdout }}
           {% endif %}
 
-    - name: Fail only if PgBouncer process is still running
+    - name: Fail if PgBouncer is still running
       fail:
-        msg: "PgBouncer process is still running. Manual check required."
-      when: final_pgbouncer_check.stdout != ""
+        msg: "PgBouncer is still running. Check if another service or watchdog is restarting it."
+      when: final_check.stdout != ""
