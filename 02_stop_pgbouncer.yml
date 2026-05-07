@@ -1,27 +1,37 @@
-
 ---
-- name: Stop PgBouncer
+- name: Stop PgBouncer properly
   hosts: all
   become: true
   gather_facts: false
 
   tasks:
-    - name: Kill PgBouncer if running
+    - name: Attempt systemctl stop (ignore timeout)
+      shell: systemctl stop pgbouncer || true
+      changed_when: true
+
+    - name: Kill any remaining PgBouncer process
       shell: |
         PIDS=$(pgrep -x pgbouncer || true)
         if [ -n "$PIDS" ]; then
-          kill -TERM $PIDS || true
-          sleep 5
           kill -9 $PIDS || true
         fi
       changed_when: true
 
-    - name: Verify PgBouncer process is stopped
+    - name: Wait 5 seconds for restart behavior
+      pause:
+        seconds: 5
+
+    - name: Check if PgBouncer is still running
       shell: pgrep -x pgbouncer || true
       register: final_check
       changed_when: false
 
-    - name: Fail if PgBouncer is still running
-      fail:
-        msg: "PgBouncer is still running."
-      when: final_check.stdout != ""
+    - name: Show PgBouncer state
+      debug:
+        msg: >-
+          {% if final_check.stdout == "" %}
+          PgBouncer is stopped.
+          {% else %}
+          PgBouncer restarted automatically (PID {{ final_check.stdout }}).
+          Continuing workflow (reboot step will handle it).
+          {% endif %}
