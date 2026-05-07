@@ -1,0 +1,22 @@
+---
+- name: Start PgBouncer service
+  hosts: all
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Start PgBouncer
+      systemd:
+        name: pgbouncer
+        state: started
+        enabled: true
+
+    - name: Verify PgBouncer is running
+      command: systemctl is-active pgbouncer
+      register: pgbouncer_running
+      failed_when: pgbouncer_running.stdout != "active"
+      changed_when: false
+
+    - name: Show running status
+      debug:
+        msg: "PgBouncer is running."
