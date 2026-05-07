@@ -1,49 +1,60 @@
-
 ---
-- name: Stop PgBouncer service
+- name: Stop PgBouncer service safely
   hosts: all
   become: true
   gather_facts: false
 
   tasks:
-    - name: Try to stop PgBouncer gracefully
-      shell: timeout 60 systemctl stop pgbouncer
-      register: stop_result
-      ignore_errors: true
-      changed_when: true
+    - name: Get PgBouncer MainPID from systemd
+      shell: systemctl show pgbouncer -p MainPID --value
+      register: pgbouncer_mainpid
+      changed_when: false
 
-    - name: Show stop result
+    - name: Show MainPID
       debug:
-        var: stop_result
+        msg: "PgBouncer MainPID is {{ pgbouncer_mainpid.stdout }}"
 
-    - name: Force kill PgBouncer if graceful stop failed
+    - name: Try graceful kill using systemd
       shell: |
-        systemctl kill --kill-who=all pgbouncer || true
-        pkill -TERM pgbouncer || true
-        sleep 5
-        pkill -KILL pgbouncer || true
-      when: stop_result.rc != 0
+        systemctl kill --signal=SIGTERM --kill-who=main pgbouncer || true
+        sleep 10
       changed_when: true
 
-    - name: Reset failed PgBouncer systemd state
+    - name: Check if PgBouncer process still exists
+      shell: pgrep -a pgbouncer || true
+      register: pgbouncer_check_1
+      changed_when: false
+
+    - name: Show PgBouncer process after SIGTERM
+      debug:
+        msg: "{{ pgbouncer_check_1.stdout | default('No PgBouncer process running') }}"
+
+    - name: Force kill PgBouncer if still running
+      shell: |
+        pkill -KILL pgbouncer || true
+        sleep 5
+      when: pgbouncer_check_1.stdout != ""
+      changed_when: true
+
+    - name: Reset failed state
       shell: systemctl reset-failed pgbouncer || true
       changed_when: false
 
-    - name: Check if PgBouncer process is still running
-      shell: pgrep -x pgbouncer || true
-      register: pgbouncer_pid
+    - name: Final process check
+      shell: pgrep -a pgbouncer || true
+      register: final_pgbouncer_check
       changed_when: false
 
-    - name: Show PgBouncer PID check
+    - name: Show final PgBouncer process status
       debug:
         msg: >-
-          {% if pgbouncer_pid.stdout != "" %}
-          PgBouncer is still running with PID: {{ pgbouncer_pid.stdout }}
+          {% if final_pgbouncer_check.stdout != "" %}
+          PgBouncer is still running: {{ final_pgbouncer_check.stdout }}
           {% else %}
           PgBouncer process is stopped.
           {% endif %}
 
-    - name: Fail if PgBouncer process is still running
+    - name: Fail only if PgBouncer process is still running
       fail:
         msg: "PgBouncer process is still running. Manual check required."
-      when: pgbouncer_pid.stdout != ""
+      when: final_pgbouncer_check.stdout != ""
