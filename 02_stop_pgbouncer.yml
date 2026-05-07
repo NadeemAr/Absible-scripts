@@ -1,0 +1,21 @@
+---
+- name: Stop PgBouncer service
+  hosts: all
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Stop PgBouncer
+      systemd:
+        name: pgbouncer
+        state: stopped
+
+    - name: Verify PgBouncer stopped
+      command: systemctl is-active pgbouncer
+      register: pgbouncer_stopped
+      failed_when: pgbouncer_stopped.stdout != "inactive"
+      changed_when: false
+
+    - name: Show stopped status
+      debug:
+        msg: "PgBouncer is stopped."
