@@ -1,0 +1,15 @@
+---
+- name: Check PgBouncer status
+  hosts: all
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Check PgBouncer service status
+      command: systemctl status pgbouncer
+      register: pgbouncer_status
+      ignore_errors: true
+
+    - name: Show PgBouncer status
+      debug:
+        var: pgbouncer_status.stdout_lines
