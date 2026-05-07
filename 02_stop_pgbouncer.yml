@@ -1,9 +1,52 @@
 ---
-- name: Stop PgBouncer Service
+- name: Stop PgBouncer
   hosts: all
-  become: yes
+  become: true
+  gather_facts: false
+
   tasks:
-    - name: Ensure PgBouncer is stopped
-      ansible.builtin.service:
-        name: pgbouncer
-        state: stopped
+    - name: Show PgBouncer before stop
+      shell: ps -eo pid,ppid,user,stat,cmd | grep '[p]gbouncer' || true
+      register: before_check
+      changed_when: false
+
+    - name: Display before status
+      debug:
+        var: before_check.stdout_lines
+
+    - name: Kill PgBouncer process
+      shell: |
+        PIDS=$(pgrep -x pgbouncer || true)
+        if [ -n "$PIDS" ]; then
+          echo "Killing PgBouncer PID(s): $PIDS"
+          kill -TERM $PIDS || true
+          sleep 5
+          kill -9 $PIDS || true
+        else
+          echo "No PgBouncer process running"
+        fi
+      register: kill_result
+      changed_when: true
+
+    - name: Show kill result
+      debug:
+        var: kill_result.stdout_lines
+
+    - name: Verify PgBouncer process is stopped
+      shell: pgrep -x pgbouncer || true
+      register: final_check
+      changed_when: false
+
+    - name: Show final result
+      debug:
+        msg: >-
+          {% if final_check.stdout == "" %}
+          PgBouncer process is stopped. Systemd may show failed because process was killed.
+          {% else %}
+          PgBouncer is still running with PID(s): {{ final_check.stdout }}
+          {% endif %}
+
+    - name: Fail only if process is still running
+      fail:
+        msg: "PgBouncer process is still running."
+      when: final_check.stdout != ""
