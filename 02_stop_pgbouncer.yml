@@ -1,64 +1,9 @@
 ---
-- name: Stop PgBouncer without systemd
+- name: Stop PgBouncer Service
   hosts: all
-  become: true
-  gather_facts: false
-
+  become: yes
   tasks:
-    - name: Show current PgBouncer process
-      shell: ps -eo pid,ppid,user,stat,cmd | grep '[p]gbouncer'
-      register: before_pgbouncer
-      ignore_errors: true
-      changed_when: false
-
-    - name: Display current PgBouncer process
-      debug:
-        var: before_pgbouncer.stdout_lines
-
-    - name: Get PgBouncer PIDs
-      shell: pgrep -u pgbouncer -x pgbouncer || true
-      register: pgbouncer_pids
-      changed_when: false
-
-    - name: Kill PgBouncer with SIGTERM
-      shell: kill -TERM {{ pgbouncer_pids.stdout_lines | join(' ') }}
-      when: pgbouncer_pids.stdout != ""
-      ignore_errors: true
-      changed_when: true
-
-    - name: Wait after SIGTERM
-      pause:
-        seconds: 10
-
-    - name: Get remaining PgBouncer PIDs
-      shell: pgrep -u pgbouncer -x pgbouncer || true
-      register: remaining_pids
-      changed_when: false
-
-    - name: Force kill remaining PgBouncer PIDs
-      shell: kill -9 {{ remaining_pids.stdout_lines | join(' ') }}
-      when: remaining_pids.stdout != ""
-      ignore_errors: true
-      changed_when: true
-
-    - name: Wait until PgBouncer process is gone
-      shell: pgrep -u pgbouncer -x pgbouncer || true
-      register: final_pids
-      retries: 10
-      delay: 3
-      until: final_pids.stdout == ""
-      changed_when: false
-
-    - name: Final PgBouncer process check
-      shell: ps -eo pid,ppid,user,stat,cmd | grep '[p]gbouncer' || true
-      register: final_check
-      changed_when: false
-
-    - name: Show final result
-      debug:
-        var: final_check.stdout_lines
-
-    - name: Fail if PgBouncer is still running
-      fail:
-        msg: "PgBouncer is still running. Process may be stuck in unkillable D-state or being restarted by another process."
-      when: final_check.stdout != ""
+    - name: Ensure PgBouncer is stopped
+      ansible.builtin.service:
+        name: pgbouncer
+        state: stopped
