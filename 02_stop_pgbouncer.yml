@@ -6,35 +6,37 @@
   gather_facts: false
 
   tasks:
-    - name: Try to stop PgBouncer gracefully
-      systemd:
-        name: pgbouncer
-        state: stopped
+    - name: Try graceful stop with timeout
+      shell: timeout 30 systemctl stop pgbouncer
       register: stop_result
       ignore_errors: true
 
-    - name: Show stop error if graceful stop failed
+    - name: Show graceful stop result
       debug:
         var: stop_result
-      when: stop_result is failed
 
-    - name: Kill PgBouncer process if systemctl stop failed
+    - name: Force kill PgBouncer through systemd if stop failed
       shell: |
+        systemctl kill --kill-who=all pgbouncer || true
         pkill -TERM pgbouncer || true
         sleep 5
         pkill -KILL pgbouncer || true
-      when: stop_result is failed
+      when: stop_result.rc != 0
 
-    - name: Reset failed systemd state
-      command: systemctl reset-failed pgbouncer
-      when: stop_result is failed
-
-    - name: Verify PgBouncer is stopped
-      command: systemctl is-active pgbouncer
-      register: pgbouncer_status
-      failed_when: pgbouncer_status.stdout == "active"
+    - name: Reset failed PgBouncer state
+      shell: systemctl reset-failed pgbouncer || true
       changed_when: false
 
-    - name: Show final PgBouncer status
+    - name: Check PgBouncer status
+      shell: systemctl is-active pgbouncer || true
+      register: pgbouncer_status
+      changed_when: false
+
+    - name: Show PgBouncer status
       debug:
         msg: "PgBouncer status is {{ pgbouncer_status.stdout }}"
+
+    - name: Fail if PgBouncer is still active
+      fail:
+        msg: "PgBouncer is still running. Manual check required."
+      when: pgbouncer_status.stdout == "active"
