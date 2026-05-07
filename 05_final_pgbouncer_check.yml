@@ -1,0 +1,21 @@
+---
+- name: Final PgBouncer health check
+  hosts: all
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Check PgBouncer status
+      command: systemctl status pgbouncer --no-pager
+      register: final_status
+      ignore_errors: true
+
+    - name: Show final status
+      debug:
+        var: final_status.stdout_lines
+
+    - name: Confirm PgBouncer is active
+      command: systemctl is-active pgbouncer
+      register: active_status
+      failed_when: active_status.stdout != "active"
+      changed_when: false
