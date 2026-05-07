@@ -1,3 +1,4 @@
+
 ---
 - name: Stop PgBouncer service
   hosts: all
@@ -5,17 +6,35 @@
   gather_facts: false
 
   tasks:
-    - name: Stop PgBouncer
+    - name: Try to stop PgBouncer gracefully
       systemd:
         name: pgbouncer
         state: stopped
+      register: stop_result
+      ignore_errors: true
 
-    - name: Verify PgBouncer stopped
+    - name: Show stop error if graceful stop failed
+      debug:
+        var: stop_result
+      when: stop_result is failed
+
+    - name: Kill PgBouncer process if systemctl stop failed
+      shell: |
+        pkill -TERM pgbouncer || true
+        sleep 5
+        pkill -KILL pgbouncer || true
+      when: stop_result is failed
+
+    - name: Reset failed systemd state
+      command: systemctl reset-failed pgbouncer
+      when: stop_result is failed
+
+    - name: Verify PgBouncer is stopped
       command: systemctl is-active pgbouncer
-      register: pgbouncer_stopped
-      failed_when: pgbouncer_stopped.stdout != "inactive"
+      register: pgbouncer_status
+      failed_when: pgbouncer_status.stdout == "active"
       changed_when: false
 
-    - name: Show stopped status
+    - name: Show final PgBouncer status
       debug:
-        msg: "PgBouncer is stopped."
+        msg: "PgBouncer status is {{ pgbouncer_status.stdout }}"
