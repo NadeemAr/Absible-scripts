@@ -5,18 +5,30 @@
   gather_facts: false
 
   tasks:
+    - name: Reset failed PgBouncer state
+      shell: systemctl reset-failed pgbouncer || true
+      changed_when: false
+
     - name: Start PgBouncer
       systemd:
         name: pgbouncer
         state: started
         enabled: true
 
-    - name: Verify PgBouncer is running
-      command: systemctl is-active pgbouncer
+    - name: Wait for PgBouncer to come up
+      pause:
+        seconds: 5
+
+    - name: Verify PgBouncer process is running
+      shell: pgrep -a pgbouncer
       register: pgbouncer_running
-      failed_when: pgbouncer_running.stdout != "active"
       changed_when: false
 
-    - name: Show running status
+    - name: Show PgBouncer status
       debug:
-        msg: "PgBouncer is running."
+        var: pgbouncer_running.stdout_lines
+
+    - name: Fail if PgBouncer is not running
+      fail:
+        msg: "PgBouncer failed to start"
+      when: pgbouncer_running.stdout == ""
